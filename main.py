@@ -1,15 +1,14 @@
 from fastapi import FastAPI, Request, status
 from fastapi.responses import Response, FileResponse
 from fastapi.exceptions import RequestValidationError, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
-from src.constants import Constants
-from src.services import logs as log_service
-from src.db import db_init, db_close
 from src.perf.system_monitor import get_monitor
-from src.globals import Globals
+from src.services import logs as log_service
+from fastapi.staticfiles import StaticFiles
+from src.constants import Constants
+from src.db import db_init, db_close
 from src import middleware
 from src.routes import shortener
 from src.routes import admin
@@ -23,6 +22,7 @@ from src.routes import tags
 from src.routes import user
 from src.routes import dashboard
 from src import util
+from src.cache import RedisLikeCache
 import time
 import contextlib
 import asyncio
@@ -34,26 +34,20 @@ import os
 async def lifespan(app: FastAPI):
     print(f"[Starting {Constants.API_NAME}]")
     # System Monitor
-    task = asyncio.create_task(util.periodic_update())
+    system_monitor_task = asyncio.create_task(util.periodic_update())
 
     # Database
     await db_init()
     
-    # Redis
-    await util.init_redis_cache()
-
     yield
     
     # SystemMonitor
-    task.cancel()
+    system_monitor_task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
-        await task
+        await system_monitor_task
 
     # Database
     await db_close()    
-    
-    # Redis
-    await Globals.redis_client.aclose()
 
     print(f"[Shutting down {Constants.API_NAME}]")
 
@@ -64,6 +58,26 @@ app = FastAPI(
     description=Constants.API_DESCR,
     version=Constants.API_VERSION,
     lifespan=lifespan
+)
+
+if Constants.IS_PRODUCTION:
+    origins = [
+        "https://vitortz.github.io",
+        "https://vitortz.github.io/yanille-client/"
+    ]
+else:
+    origins = [        
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
+    ]    
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -93,19 +107,6 @@ app.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 app.include_router(user.router, prefix="/user", tags=["user"])
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 
-
-if Constants.IS_PRODUCTION:
-    origins = [
-        "http://localhost:5173"
-    ]
-
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
     
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)
@@ -144,39 +145,32 @@ async def http_middleware(request: Request, call_next):
     # Rate limit check
     identifier = util.get_client_identifier(request)
     key = f"rate_limit:{identifier}"
-    
-    pipe = Globals.redis_client.pipeline()
-    pipe.incr(key)
-    pipe.expire(key, Constants.WINDOW)
-    results = await pipe.execute()
-    
-    current = results[0]
-    ttl = await Globals.redis_client.ttl(key)
-    
-    if current > Constants.MAX_REQUESTS:
-        await log_service.log_rate_limit_violation(
-            request=request,
-            identifier=identifier,
-            attempts=current,
-            ttl=ttl
-        )
-        
+
+    cache = RedisLikeCache()
+
+    current = cache.get(key)
+    new_value = (current + 1) if current else 1
+
+    if new_value > Constants.MAX_REQUESTS:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail={
                 "error": "Too many requests",
-                "message": f"Rate limit exceeded. Try again in {ttl} seconds.",
-                "retry_after": ttl,
+                "message": "Rate limit exceeded. Try again in 60 seconds.",
+                "retry_after": f"{Constants.WINDOW}",
                 "limit": Constants.MAX_REQUESTS,
                 "window": Constants.WINDOW
             },
             headers={
-                "Retry-After": str(ttl),
+                "Retry-After": f"{Constants.WINDOW}",
                 "X-RateLimit-Limit": str(Constants.MAX_REQUESTS),
                 "X-RateLimit-Remaining": "0",
-                "X-RateLimit-Reset": str(ttl)
+                "X-RateLimit-Reset": f"{Constants.WINDOW}"
             }
         )
+
+    cache.set(key, new_value, Constants.WINDOW)
+    current = new_value
     
     # Headers
     response: Response = await call_next(request)
@@ -184,7 +178,7 @@ async def http_middleware(request: Request, call_next):
     remaining = max(Constants.MAX_REQUESTS - current, 0)
     response.headers["X-RateLimit-Limit"] = str(Constants.MAX_REQUESTS)
     response.headers["X-RateLimit-Remaining"] = str(remaining)
-    response.headers["X-RateLimit-Reset"] = str(ttl)
+    response.headers["X-RateLimit-Reset"] = f"{Constants.WINDOW}"
         
     middleware.add_security_headers(request, response)
     response_time_ms = (time.perf_counter() - start_time) * 1000

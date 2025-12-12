@@ -1,7 +1,5 @@
 from src.perf.system_monitor import get_monitor
 from src.schemas.client_info import ClientInfo
-from src.cache.config import CacheSettings
-from src.globals import Globals
 from fastapi import Request
 from src.constants import Constants
 from pathlib import Path
@@ -91,24 +89,6 @@ def datetime_has_expired(expires_at: Optional[datetime]) -> bool:
     if expires_at and isinstance(expires_at, datetime):
         return expires_at < datetime.now(timezone.utc)
     return False
-
-
-async def init_redis_cache():
-    if CacheSettings.CACHE_DEBUG:
-        print(f"[CACHE CONFIG] Default TTL: {CacheSettings.DEFAULT_TTL}s")
-        print(f"[CACHE CONFIG] Cache Enabled: {CacheSettings.ENABLE_CACHE}")
-        print(f"[CACHE CONFIG] Route TTLs: {CacheSettings.ROUTE_TTL}")
-        print(f"[CACHE CONFIG] No-cache paths: {len(CacheSettings.NO_CACHE_PATHS)} paths")
-    try:
-        await Globals.redis_client.ping()
-        health = await Globals.cache_service.health_check()
-        if health["status"] == "healthy":
-            print("[REDIS CONNECTED]")
-            print("[CACHE SERVICE READY]")
-        else:
-            print(f"[CACHE SERVICE WARNING]: {health}")
-    except redis.RedisError as e:
-        print(f"[REDIS ERROR]: {e}")
 
 
 def extract_domain(url: str) -> str:

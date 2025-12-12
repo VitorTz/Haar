@@ -12,6 +12,7 @@ from src import security
 from uuid import UUID
 from typing import Optional
 from src import util
+from src.security import hash_password
 
 
 async def get_user(user_id: str | UUID, conn: Connection) -> User:
@@ -96,7 +97,7 @@ async def refresh_access_token(refresh_token: Optional[str], conn: Connection) -
 
 async def signup(new_user: UserCreate, conn: Connection):
     try:
-        await users_table.create_user(new_user, conn)
+        await users_table.create_user(new_user, hash_password, conn)
         return Response(status_code=status.HTTP_201_CREATED)
     except UniqueViolationError:
         raise HTTPException(status_code=409, detail="Email already registered")

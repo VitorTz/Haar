@@ -29,14 +29,11 @@ async def delete_domain(domain: DomainDelete, conn: Connection):
 
 
 async def is_safe_domain(request: Request, domain: Domain, conn: Connection) -> bool:
-    # Short time storage
-    cache_key = f"safe_domains:{domain.url}"
-    cached = await Globals.redis_client.get(cache_key)
-    if cached is not None:
-        return cached == "safe"    
-    
     body = {
-        "client": {"clientId": "fastapi-url-shortener", "clientVersion": "1.0"},
+        "client": {
+            "clientId": "yanille-api", 
+            "clientVersion": "1.0"
+        },
         "threatInfo": {
             "threatTypes": [
                 "MALWARE",
@@ -68,12 +65,10 @@ async def is_safe_domain(request: Request, domain: Domain, conn: Connection) -> 
                     conn
                 )
 
-            if data.get("matches"):
-                await Globals.redis_client.setex(cache_key, Constants.SAFE_CACHE_TTL, "unsafe")
+            if data.get("matches"):                
                 await domains_table.upsert_domain(domain.id, False, conn)
                 return False
-
-            await Globals.redis_client.setex(cache_key, Constants.SAFE_CACHE_TTL, "safe")
+            
             return True
     except httpx.RequestError as e:
         await log_service.log_error(

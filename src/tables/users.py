@@ -4,7 +4,7 @@ from src.schemas.token import Token
 from src.schemas.client_info import ClientInfo
 from asyncpg import Connection
 from uuid import UUID
-from typing import Optional
+from typing import Optional, Callable
 
 
 async def get_user(user_id: str | UUID, conn: Connection) -> Optional[User]:
@@ -126,7 +126,7 @@ async def get_user_login_data_from_email(email: str, conn: Connection) -> Option
     return UserLoginData(**dict(r)) if r else None
 
 
-async def create_user(new_user: UserCreate, conn: Connection) -> User:
+async def create_user(new_user: UserCreate, password_hash_func: Callable[[str], bytes], conn: Connection) -> User:
     r = await conn.fetchrow(
         """
             INSERT INTO users (
@@ -134,7 +134,7 @@ async def create_user(new_user: UserCreate, conn: Connection) -> User:
                 p_hash
             )
             VALUES  
-                (LOWER(TRIM($1)), decode(md5(TRIM($2)), 'hex'))
+                (LOWER(TRIM($1)), $2)
             RETURNING
                 id,
                 email,
@@ -142,7 +142,7 @@ async def create_user(new_user: UserCreate, conn: Connection) -> User:
                 created_at
         """,
         new_user.email,
-        new_user.password
+        password_hash_func(new_user.password)
     )
 
     return User(**dict(r)) if r else None

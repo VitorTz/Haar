@@ -2,7 +2,6 @@ from asyncpg import create_pool, Pool, Connection
 from src.migrate import db_migrate
 from dotenv import load_dotenv
 from typing import Callable
-from src.constants import Constants
 import psycopg
 import os
 
@@ -13,12 +12,9 @@ load_dotenv()
 db_pool: Pool = None
 
 
-DATABASE_URL = os.getenv("DATABASE_URL") if Constants.IS_PRODUCTION else os.getenv("DATABASE_URL_DEV")
-
-
 async def db_init() -> None:
     global db_pool
-    db_pool = await create_pool(DATABASE_URL, min_size=5, max_size=20)
+    db_pool = await create_pool(os.getenv("DATABASE_URL"), min_size=5, max_size=20, statement_cache_size=0)
     async with db_pool.acquire() as conn:
         await db_migrate(conn)
 

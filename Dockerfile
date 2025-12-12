@@ -40,7 +40,6 @@ COPY src/ ./src/
 COPY res/ ./res/
 COPY static/ ./static/
 COPY db/ ./db/
-COPY .env .env
 
 # Expor a porta que o Fly.io usará
 ENV PORT=8000

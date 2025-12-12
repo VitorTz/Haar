@@ -13,11 +13,10 @@ from fastapi import status
 from jose import jwt, JWTError
 from asyncpg import Connection
 from src.constants import Constants
-from typing import Optional, Union
+from typing import Optional
 from dataclasses import dataclass
 from src import util
 import uuid
-import hashlib
 
 
 @dataclass
@@ -29,7 +28,15 @@ class UrlMetadata:
     content_length: str | None
 
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(
+    schemes=["argon2"],
+    deprecated="auto"
+)
+
+INVALID_PASSWORD_EXCEPTION = HTTPException(
+    status_code=status.HTTP_400_BAD_REQUEST,
+    detail="Password must be at least 8 characters long"
+)
 
 
 def check_admin_token(token: Optional[str]):
@@ -53,14 +60,17 @@ def require_admin(token: str = Depends(Globals.oauth2_admin_scheme)):
     return True
 
 
-def hash_password(password: str) -> bytes | None:
-    if not password: return None
-    return pwd_context.hash(password.strip()).encode()
+def hash_password(password: str) -> bytes:
+    if not password or len(password) < 8:
+        raise INVALID_PASSWORD_EXCEPTION
+    return pwd_context.hash(password).encode()
 
 
-def verify_password(password: str, password_hash: Union[bytes, memoryview]) -> bool:
-    if not password: return False
-    return bytes(password_hash) == hashlib.md5(password.strip().encode()).digest()
+def verify_password(plain_password: str, hashed_password: bytes) -> bool:
+    try:      
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception:
+        return False
 
 
 def create_new_refresh_token_expires_time() -> datetime:

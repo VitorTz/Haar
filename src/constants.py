@@ -38,7 +38,7 @@ class Constants:
         "magnetometer=(), "
         "gyroscope=(), "
         "accelerometer=()"
-    )    
+    )
 
     SECRET_KEY = os.getenv("SECRET_KEY")
     ALGORITHM = os.getenv("ALGORITHM")
