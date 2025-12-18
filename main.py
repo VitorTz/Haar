@@ -63,8 +63,7 @@ app = FastAPI(
 
 if Constants.IS_PRODUCTION:
     origins = [
-        "https://vitortz.github.io",
-        "https://vitortz.github.io/yanille-client/"
+        "https://vitortz.github.io"
     ]
 else:
     origins = [        
