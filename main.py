@@ -23,6 +23,7 @@ from src.routes import user
 from src.routes import dashboard
 from src import util
 from src.cache import RedisLikeCache
+import uvicorn
 import time
 import contextlib
 import asyncio
