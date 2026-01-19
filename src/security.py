@@ -2,7 +2,8 @@ from datetime import datetime, timezone, timedelta
 from fastapi.exceptions import HTTPException
 from fastapi.responses import Response
 from fastapi import Depends, Cookie
-from passlib.context import CryptContext
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError, InvalidHashError
 from src.constants import Constants
 from src.db import get_db
 from src.schemas.user import User, UserLoginAttempt
@@ -28,14 +29,19 @@ class UrlMetadata:
     content_length: str | None
 
 
-pwd_context = CryptContext(
-    schemes=["argon2"],
-    deprecated="auto"
-)
+ph = PasswordHasher()
+
 
 INVALID_PASSWORD_EXCEPTION = HTTPException(
     status_code=status.HTTP_400_BAD_REQUEST,
     detail="Password must be at least 8 characters long"
+)
+
+
+CREDENTIALS_EXCEPTION = HTTPException(
+    status_code=status.HTTP_401_UNAUTHORIZED,
+    detail="Could not validate credentials",
+    headers={"WWW-Authenticate": "Bearer"},
 )
 
 
@@ -61,15 +67,14 @@ def require_admin(token: str = Depends(Globals.oauth2_admin_scheme)):
 
 
 def hash_password(password: str) -> bytes:
-    if not password or len(password) < 8:
-        raise INVALID_PASSWORD_EXCEPTION
-    return pwd_context.hash(password).encode()
+    hashed_str = ph.hash(password)
+    return hashed_str.encode('utf-8')
 
 
 def verify_password(plain_password: str, hashed_password: bytes) -> bool:
-    try:      
-        return pwd_context.verify(plain_password, hashed_password)
-    except Exception:
+    try:
+        return ph.verify(hashed_password, plain_password)
+    except (VerifyMismatchError, InvalidHashError):
         return False
 
 
@@ -114,14 +119,9 @@ def check_user_login_attempts(lock: UserLoginAttempt):
 async def get_user_from_token(
     access_token: Optional[str] = Cookie(default=None),
     conn: Connection = Depends(get_db)
-) -> User:
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )    
+) -> User:    
     if access_token is None: 
-        raise credentials_exception
+        raise CREDENTIALS_EXCEPTION
     
     try:
         payload = jwt.decode(
@@ -132,14 +132,14 @@ async def get_user_from_token(
         
         user_id: str = payload.get("sub")
         if user_id is None: 
-            raise credentials_exception
+            raise CREDENTIALS_EXCEPTION
     except JWTError:
-        raise credentials_exception
+        raise CREDENTIALS_EXCEPTION
     
     manager: Optional[User] = await users_table.get_user(user_id, conn)
     
     if manager is None:
-        raise credentials_exception
+        raise CREDENTIALS_EXCEPTION
     
     return manager
 
@@ -163,7 +163,6 @@ async def get_user_from_token_if_exists(
 
 
 def set_session_token_cookie(response: Response, session_token: SessionToken):
-    print(Constants.IS_PRODUCTION)
     if Constants.IS_PRODUCTION:
         samesite_policy = "none"
         secure_policy = True
@@ -195,7 +194,7 @@ def set_session_token_cookie(response: Response, session_token: SessionToken):
 def unset_session_token_cookie(response: Response):
     if Constants.IS_PRODUCTION:
         samesite_policy = "none"
-        secure_policy = True 
+        secure_policy = True
     else:
         samesite_policy = "lax"
         secure_policy = False

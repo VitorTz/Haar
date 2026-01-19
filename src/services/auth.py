@@ -25,8 +25,9 @@ async def get_user(user_id: str | UUID, conn: Connection) -> User:
     return user
 
 
-async def login(login: UserLogin, request: Request, conn: Connection):
+async def login(response: Response, login: UserLogin, request: Request, conn: Connection):
     user_login_data: Optional[UserLoginData] = await users_table.get_user_login_data_from_email(login.email, conn)
+    
     if user_login_data is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
         
@@ -55,16 +56,15 @@ async def login(login: UserLogin, request: Request, conn: Connection):
 
     await users_table.update_user_last_login_at(user_login_data.id, conn)
     
-    user = User(
+    security.set_session_token_cookie(response, session_token)
+    return User(
         id=user_login_data.id,
         email=user_login_data.email,
         last_login_at=user_login_data.last_login_at,
         created_at=user_login_data.created_at
     )
-    response = JSONResponse(content=user.model_dump(mode='json'))
-    security.set_session_token_cookie(response, session_token)
     
-    return response
+    
 
 
 async def get_user_sessions(user: User, limit: int, offset: int, conn: Connection) -> Pagination[UserSession]:
@@ -97,7 +97,8 @@ async def refresh_access_token(refresh_token: Optional[str], conn: Connection) -
 
 async def signup(new_user: UserCreate, conn: Connection):
     try:
-        await users_table.create_user(new_user, hash_password, conn)
+        p_hash: bytes = hash_password(new_user.password)
+        await users_table.create_user(new_user, p_hash, conn)
         return Response(status_code=status.HTTP_201_CREATED)
     except UniqueViolationError:
         raise HTTPException(status_code=409, detail="Email already registered")

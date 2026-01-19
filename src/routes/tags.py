@@ -11,10 +11,11 @@ from src.schemas.urls import (
     UrlTagId, 
     URLResponse
 )
-from fastapi import APIRouter, Depends, status, Query, Request
+from fastapi import APIRouter, Depends, status, Query, Request, Cookie
 from src.services import tag as tag_service
 from asyncpg import Connection
 from src.db import get_db
+from typing import Optional
 
 
 router = APIRouter()
@@ -30,7 +31,7 @@ async def get_user_tags(
     return await tag_service.get_user_tags(user, limit, offset, conn)
 
 
-@router.post("/", status_code=status.HTTP_201_CREATED, response_model=UrlTag)
+@router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_tag(
     tag: UrlTagCreate,
     user: User = Depends(get_user_from_token), 

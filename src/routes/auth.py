@@ -1,6 +1,6 @@
 from src.schemas.user import User, UserLogin, UserSession, UserCreate
 from src.schemas.pagination import Pagination
-from fastapi import APIRouter, Depends, Request, Query, Cookie, status
+from fastapi import APIRouter, Depends, Request, Query, Cookie, status, Response
 from fastapi.responses import JSONResponse
 from src.security import get_user_from_token
 from src.services import auth as auth_service
@@ -22,11 +22,12 @@ async def get_manager(
 
 @router.post("/login", response_model=User)
 async def login(
+    response: Response,
     user_login: UserLogin,
     request: Request,
     conn: Connection = Depends(get_db)
 ) -> User:
-    return await auth_service.login(user_login, request, conn)
+    return await auth_service.login(response, user_login, request, conn)
 
 
 @router.get("/sessions", response_model=Pagination[UserSession])
